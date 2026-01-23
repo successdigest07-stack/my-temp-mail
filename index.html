@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickBurn Pro - Full Access</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; padding: 15px; }
+        .card { background: #1a1a1a; padding: 25px; border-radius: 20px; border: 1px solid #333; max-width: 400px; margin: auto; }
+        .email-box { background: #000; padding: 15px; border-radius: 10px; border: 1px solid #00d1b2; color: #00d1b2; font-family: monospace; font-size: 1.1rem; margin: 15px 0; word-break: break-all; }
+        select, button { width: 100%; padding: 14px; border-radius: 8px; margin: 8px 0; border: none; font-weight: bold; cursor: pointer; }
+        select { background: #2d2d2d; color: white; }
+        .btn-main { background: #00d1b2; color: black; }
+        .btn-sec { background: #3273dc; color: white; }
+        .msg-list { text-align: left; margin-top: 20px; }
+        .msg-item { background: #252525; padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #00d1b2; cursor: pointer; transition: 0.2s; }
+        .msg-item:active { background: #333; }
+        /* Style for the Message Modal */
+        #contentModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; padding: 20px; box-sizing: border-box; overflow-y: auto; text-align: left; }
+        .modal-body { background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; max-width: 500px; margin: auto; white-space: pre-wrap; word-break: break-all; color: #fff; line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2 style="margin-top:0;">🛡️ Private Burner</h2>
+    <p style="font-size: 0.8rem; color: #888;">Switch domain if banned. Tap email to read.</p>
+    
+    <select id="domainList" onchange="createNew()"></select>
+    <div id="addr" class="email-box">Loading...</div>
+    
+    <button class="btn-main" onclick="copyText()">📋 Copy Email</button>
+    <button class="btn-sec" onclick="check()">🔄 Refresh Inbox</button>
+    
+    <div id="status" style="font-size: 0.7rem; color: #666; margin-top: 10px;">Ready</div>
+    <div id="inbox" class="msg-list">No messages yet...</div>
+</div>
+
+<div id="contentModal">
+    <div class="modal-body">
+        <h3 id="modalSubject">Subject</h3>
+        <p id="modalFrom" style="color: #00d1b2; font-size: 0.9rem;"></p>
+        <hr style="border: 0.5px solid #333;">
+        <div id="modalText">Loading content...</div>
+        <button class="btn-sec" onclick="closeModal()" style="margin-top: 20px;">Close Message</button>
+    </div>
+</div>
+
+<script>
+    let token = ""; let email = "";
+    const api = "https://api.mail.tm";
+
+    async function init() {
+        const doms = await fetch(`${api}/domains`).then(r => r.json());
+        const list = document.getElementById('domainList');
+        doms['hydra:member'].forEach(d => {
+            let o = document.createElement('option');
+            o.value = d.domain; o.innerText = "@" + d.domain;
+            list.appendChild(o);
+        });
+        createNew();
+    }
+
+    async function createNew() {
+        const domain = document.getElementById('domainList').value;
+        const user = Math.random().toString(36).substring(2, 12);
+        email = `${user}@${domain}`;
+        document.getElementById('addr').innerText = email;
+        
+        await fetch(`${api}/accounts`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({address: email, password: "password123"})
+        });
+
+        const auth = await fetch(`${api}/token`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({address: email, password: "password123"})
+        }).then(r => r.json());
+        
+        token = auth.token;
+        document.getElementById('status').innerText = "New Account Active";
+    }
+
+    async function check() {
+        document.getElementById('status').innerText = "Checking...";
+        const res = await fetch(`${api}/messages`, {
+            headers: {'Authorization': `Bearer ${token}`}
+        }).then(r => r.json());
+        
+        const box = document.getElementById('inbox');
+        const messages = res['hydra:member'];
+        box.innerHTML = messages.length ? "" : "No mail yet...";
+        
+        messages.forEach(m => {
+            let d = document.createElement('div');
+            d.className = 'msg-item';
+            d.innerHTML = `<strong>From:</strong> ${m.from.address}<br><strong>Subject:</strong> ${m.subject}`;
+            // When user clicks the email, fetch full body
+            d.onclick = () => openMessage(m.id);
+            box.appendChild(d);
+        });
+        document.getElementById('status').innerText = `Update complete (${messages.length} found)`;
+    }
+
+    async function openMessage(id) {
+        document.getElementById('contentModal').style.display = 'block';
+        document.getElementById('modalText').innerText = "Fetching message content...";
+        
+        const res = await fetch(`${api}/messages/${id}`, {
+            headers: {'Authorization': `Bearer ${token}`}
+        }).then(r => r.json());
+
+        document.getElementById('modalSubject').innerText = res.subject;
+        document.getElementById('modalFrom').innerText = "From: " + res.from.address;
+        // Check for HTML body first, otherwise use Text body
+        document.getElementById('modalText').innerText = res.text || "No text content found.";
+        
+        // If the email has HTML content, you could use:
+        // document.getElementById('modalText').innerHTML = res.html; 
+    }
+
+    function closeModal() {
+        document.getElementById('contentModal').style.display = 'none';
+    }
+
+    function copyText() {
+        navigator.clipboard.writeText(email);
+        alert("Copied!");
+    }
+
+    init();
+</script>
+</body>
+  </html>
