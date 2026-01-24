@@ -51,7 +51,7 @@
                 list.appendChild(o);
             });
 
-            // FIXED: If we have an email, SHOW IT and STOP. Don't let it create a new one.
+            // FIXED: Only auto-generate if there is NOTHING in memory
             if (email && token) {
                 document.getElementById('addr').innerText = email;
                 document.getElementById('status').innerText = "Email Restored";
@@ -115,7 +115,7 @@
         } catch (e) { console.log("Refresh failed"); }
     }
 
-    setInterval(check, 5000);
+    setInterval(check, 5000); // REFRESH EVERY 5 SECONDS
 
     async function openMessage(id) {
         document.getElementById('contentModal').style.display = 'block';
