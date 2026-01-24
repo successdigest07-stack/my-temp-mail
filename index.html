@@ -2,57 +2,39 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuickBurn Pro - Turbo</title>
+    <title>Turbo Burner - Fixed</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; padding: 15px; }
         .card { background: #1a1a1a; padding: 25px; border-radius: 20px; border: 1px solid #333; max-width: 400px; margin: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .email-box { background: #000; padding: 15px; border-radius: 10px; border: 1px solid #00d1b2; color: #00d1b2; font-family: monospace; font-size: 1.1rem; margin: 15px 0; word-break: break-all; min-height: 1.5rem; }
+        .email-box { background: #000; padding: 15px; border-radius: 10px; border: 1px solid #00d1b2; color: #00d1b2; font-family: monospace; font-size: 1.1rem; margin: 15px 0; word-break: break-all; min-height: 1.5rem; display: flex; align-items: center; justify-content: center; }
         select, button { width: 100%; padding: 14px; border-radius: 8px; margin: 8px 0; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
         select { background: #2d2d2d; color: white; border: 1px solid #444; }
         .btn-main { background: #00d1b2; color: black; }
         .btn-gen { background: #ffdd57; color: black; }
         .btn-sec { background: #3273dc; color: white; }
-        
         .status-bar { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.7rem; color: #666; margin-top: 10px; }
         .pulse { width: 8px; height: 8px; background: #00d1b2; border-radius: 50%; display: inline-block; animation: blink 1s infinite; }
         @keyframes blink { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
-
         .msg-list { text-align: left; margin-top: 20px; }
         .msg-item { background: #252525; padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #00d1b2; cursor: pointer; }
-        #contentModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; padding: 20px; box-sizing: border-box; overflow-y: auto; text-align: left; }
-        .modal-body { background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; max-width: 500px; margin: auto; white-space: pre-wrap; word-break: break-all; color: #fff; line-height: 1.5; }
+        #contentModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; padding: 20px; box-sizing: border-box; overflow-y: auto; }
+        .modal-body { background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; max-width: 500px; margin: auto; color: #fff; }
     </style>
 </head>
 <body>
 
 <div class="card">
     <h2 style="margin-top:0;">🛡️ Turbo Burner</h2>
-    
     <label style="font-size: 0.8rem; color: #888;">Select Domain</label>
     <select id="domainList"></select>
-    
     <button class="btn-gen" onclick="createNew()">✨ Create New Email</button>
-    <div id="addr" class="email-box">Syncing Memory...</div>
-    
+    <div id="addr" class="email-box">Checking memory...</div>
     <button class="btn-main" onclick="copyText()">📋 Copy Email</button>
-    
-    <div class="status-bar">
-        <span class="pulse"></span>
-        <span id="status">Turbo Mode Active (5s)</span>
-    </div>
-    
+    <div class="status-bar"><span class="pulse"></span><span id="status">Syncing...</span></div>
     <div id="inbox" class="msg-list"></div>
 </div>
 
-<div id="contentModal">
-    <div class="modal-body">
-        <h3 id="modalSubject">Subject</h3>
-        <p id="modalFrom" style="color: #00d1b2; font-size: 0.9rem;"></p>
-        <hr style="border: 0.5px solid #333;">
-        <div id="modalText">Loading...</div>
-        <button class="btn-sec" onclick="closeModal()" style="margin-top: 20px;">Close Message</button>
-    </div>
-</div>
+<div id="contentModal"><div class="modal-body"><h3 id="modalSubject"></h3><p id="modalFrom"></p><hr><div id="modalText"></div><button class="btn-sec" onclick="closeModal()">Close</button></div></div>
 
 <script>
     let token = localStorage.getItem('tm_token') || ""; 
@@ -69,13 +51,16 @@
                 list.appendChild(o);
             });
 
+            // FIXED: If we have an email, SHOW IT and STOP. Don't let it create a new one.
             if (email && token) {
                 document.getElementById('addr').innerText = email;
+                document.getElementById('status').innerText = "Email Restored";
                 check();
             } else {
-                document.getElementById('addr').innerText = "Ready for setup...";
+                document.getElementById('addr').innerText = "No email set";
+                document.getElementById('status').innerText = "Ready";
             }
-        } catch (e) { document.getElementById('status').innerText = "Domain Error"; }
+        } catch (e) { document.getElementById('status').innerText = "Connection Error"; }
     }
 
     async function createNew() {
@@ -105,7 +90,7 @@
             document.getElementById('addr').innerText = email;
             document.getElementById('inbox').innerHTML = "Waiting for mail...";
             check(); 
-        } catch (e) { document.getElementById('status').innerText = "Error - Try again"; }
+        } catch (e) { document.getElementById('status').innerText = "Creation failed"; }
     }
 
     async function check() {
@@ -114,10 +99,8 @@
             const res = await fetch(`${api}/messages`, {
                 headers: {'Authorization': `Bearer ${token}`}
             }).then(r => r.json());
-            
             const box = document.getElementById('inbox');
             const messages = res['hydra:member'];
-            
             if (messages.length > 0) {
                 box.innerHTML = "";
                 messages.forEach(m => {
@@ -128,31 +111,24 @@
                     box.appendChild(d);
                 });
             }
-            document.getElementById('status').innerText = "Scan OK: " + new Date().toLocaleTimeString();
-        } catch (e) { console.log("Scan failed"); }
+            document.getElementById('status').innerText = "Turbo Scan: " + new Date().toLocaleTimeString();
+        } catch (e) { console.log("Refresh failed"); }
     }
 
-    // UPDATED REFRESH RATE TO 5 SECONDS (5000ms)
     setInterval(check, 5000);
 
     async function openMessage(id) {
         document.getElementById('contentModal').style.display = 'block';
-        document.getElementById('modalText').innerText = "Loading...";
         const res = await fetch(`${api}/messages/${id}`, {
             headers: {'Authorization': `Bearer ${token}`}
         }).then(r => r.json());
         document.getElementById('modalSubject').innerText = res.subject;
         document.getElementById('modalFrom').innerText = "From: " + res.from.address;
-        document.getElementById('modalText').innerText = res.text || "No text content.";
+        document.getElementById('modalText').innerText = res.text;
     }
 
     function closeModal() { document.getElementById('contentModal').style.display = 'none'; }
-
-    function copyText() {
-        if (!email) return;
-        navigator.clipboard.writeText(email);
-        alert("Copied: " + email);
-    }
+    function copyText() { if(email) { navigator.clipboard.writeText(email); alert("Copied!"); } }
 
     init();
 </script>
