@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuickBurn Pro - Final</title>
+    <title>QuickBurn Pro - Turbo</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; padding: 15px; }
         .card { background: #1a1a1a; padding: 25px; border-radius: 20px; border: 1px solid #333; max-width: 400px; margin: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -13,9 +13,8 @@
         .btn-gen { background: #ffdd57; color: black; }
         .btn-sec { background: #3273dc; color: white; }
         
-        /* Auto-Refresh Status Light */
         .status-bar { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.7rem; color: #666; margin-top: 10px; }
-        .pulse { width: 8px; height: 8px; background: #00d1b2; border-radius: 50%; display: inline-block; animation: blink 2s infinite; }
+        .pulse { width: 8px; height: 8px; background: #00d1b2; border-radius: 50%; display: inline-block; animation: blink 1s infinite; }
         @keyframes blink { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
 
         .msg-list { text-align: left; margin-top: 20px; }
@@ -25,21 +24,21 @@
     </style>
 </head>
 <body>
-    
+
 <div class="card">
-    <h2 style="margin-top:0;">🛡️ Private Burner</h2>
+    <h2 style="margin-top:0;">🛡️ Turbo Burner</h2>
     
     <label style="font-size: 0.8rem; color: #888;">Select Domain</label>
     <select id="domainList"></select>
     
     <button class="btn-gen" onclick="createNew()">✨ Create New Email</button>
-    <div id="addr" class="email-box">Ready for setup...</div>
+    <div id="addr" class="email-box">Syncing Memory...</div>
     
     <button class="btn-main" onclick="copyText()">📋 Copy Email</button>
     
     <div class="status-bar">
         <span class="pulse"></span>
-        <span id="status">Waiting for user...</span>
+        <span id="status">Turbo Mode Active (5s)</span>
     </div>
     
     <div id="inbox" class="msg-list"></div>
@@ -56,7 +55,8 @@
 </div>
 
 <script>
-    let token = ""; let email = "";
+    let token = localStorage.getItem('tm_token') || ""; 
+    let email = localStorage.getItem('tm_email') || "";
     const api = "https://api.mail.tm";
 
     async function init() {
@@ -68,30 +68,40 @@
                 o.value = d.domain; o.innerText = "@" + d.domain;
                 list.appendChild(o);
             });
-            document.getElementById('status').innerText = "Domains loaded.";
-        } catch (e) { document.getElementById('status').innerText = "Network Error"; }
+
+            if (email && token) {
+                document.getElementById('addr').innerText = email;
+                check();
+            } else {
+                document.getElementById('addr').innerText = "Ready for setup...";
+            }
+        } catch (e) { document.getElementById('status').innerText = "Domain Error"; }
     }
 
     async function createNew() {
         document.getElementById('status').innerText = "Generating...";
         const domain = document.getElementById('domainList').value;
         const user = Math.random().toString(36).substring(2, 12);
-        email = `${user}@${domain}`;
+        const newEmail = `${user}@${domain}`;
         
         try {
             await fetch(`${api}/accounts`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({address: email, password: "password123"})
+                body: JSON.stringify({address: newEmail, password: "password123"})
             });
 
             const auth = await fetch(`${api}/token`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({address: email, password: "password123"})
+                body: JSON.stringify({address: newEmail, password: "password123"})
             }).then(r => r.json());
             
             token = auth.token;
+            email = newEmail;
+            localStorage.setItem('tm_token', token);
+            localStorage.setItem('tm_email', email);
+
             document.getElementById('addr').innerText = email;
             document.getElementById('inbox').innerHTML = "Waiting for mail...";
             check(); 
@@ -100,8 +110,6 @@
 
     async function check() {
         if (!token) return;
-        document.getElementById('status').innerText = "Auto-scanning...";
-        
         try {
             const res = await fetch(`${api}/messages`, {
                 headers: {'Authorization': `Bearer ${token}`}
@@ -120,12 +128,12 @@
                     box.appendChild(d);
                 });
             }
-            document.getElementById('status').innerText = "Last check: " + new Date().toLocaleTimeString();
-        } catch (e) { console.log("Check failed"); }
+            document.getElementById('status').innerText = "Scan OK: " + new Date().toLocaleTimeString();
+        } catch (e) { console.log("Scan failed"); }
     }
 
-    // AUTO-REFRESH EVERY 15 SECONDS
-    setInterval(check, 15000);
+    // UPDATED REFRESH RATE TO 5 SECONDS (5000ms)
+    setInterval(check, 5000);
 
     async function openMessage(id) {
         document.getElementById('contentModal').style.display = 'block';
@@ -149,20 +157,4 @@
     init();
 </script>
 </body>
-</html>        // If the email has HTML content, you could use:
-        // document.getElementById('modalText').innerHTML = res.html; 
-    }
-
-    function closeModal() {
-        document.getElementById('contentModal').style.display = 'none';
-    }
-
-    function copyText() {
-        navigator.clipboard.writeText(email);
-        alert("Copied!");
-    }
-
-    init();
-</script>
-</body>
-  </html>
+</html>
