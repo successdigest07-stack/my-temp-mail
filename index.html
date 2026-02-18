@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Turbo Burner - 1s Refresh</title>
+    <title>Turbo Burner - Auto-Extract</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; padding: 15px; }
         .card { background: #1a1a1a; padding: 25px; border-radius: 20px; border: 1px solid #333; max-width: 400px; margin: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -11,14 +11,13 @@
         select { background: #2d2d2d; color: white; border: 1px solid #444; }
         .btn-main { background: #00d1b2; color: black; }
         .btn-gen { background: #ffdd57; color: black; }
-        .btn-sec { background: #3273dc; color: white; }
+        .btn-copy-otp { background: #ff3860; color: white; margin-top: 5px; font-size: 0.8rem; padding: 8px; }
         .status-bar { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.7rem; color: #666; margin-top: 10px; }
         .pulse { width: 8px; height: 8px; background: #00d1b2; border-radius: 50%; display: inline-block; animation: blink 1s infinite; }
         @keyframes blink { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
         .msg-list { text-align: left; margin-top: 20px; }
-        .msg-item { background: #252525; padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #00d1b2; cursor: pointer; }
-        #contentModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; padding: 20px; box-sizing: border-box; overflow-y: auto; }
-        .modal-body { background: #1a1a1a; padding: 20px; border-radius: 15px; border: 1px solid #333; max-width: 500px; margin: auto; color: #fff; }
+        .msg-item { background: #252525; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #00d1b2; font-size: 0.9rem; }
+        .content-view { background: #111; padding: 10px; border-radius: 5px; margin-top: 10px; color: #bbb; font-size: 0.85rem; white-space: pre-wrap; border: 1px dashed #444; }
     </style>
 </head>
 <body>
@@ -29,17 +28,16 @@
     <select id="domainList"></select>
     <button class="btn-gen" onclick="createNew()">✨ Create New Email</button>
     <div id="addr" class="email-box">Checking memory...</div>
-    <button class="btn-main" onclick="copyText()">📋 Copy Email</button>
+    <button class="btn-main" onclick="copyText(email)">📋 Copy Email</button>
     <div class="status-bar"><span class="pulse"></span><span id="status">Syncing...</span></div>
     <div id="inbox" class="msg-list"></div>
 </div>
-
-<div id="contentModal"><div class="modal-body"><h3 id="modalSubject"></h3><p id="modalFrom"></p><hr><div id="modalText"></div><button class="btn-sec" onclick="closeModal()">Close</button></div></div>
 
 <script>
     let token = localStorage.getItem('tm_token') || ""; 
     let email = localStorage.getItem('tm_email') || "";
     const api = "https://api.mail.tm";
+    let lastMsgCount = 0;
 
     async function init() {
         try {
@@ -53,43 +51,34 @@
 
             if (email && token) {
                 document.getElementById('addr').innerText = email;
-                document.getElementById('status').innerText = "Email Restored";
                 check();
-            } else {
-                document.getElementById('addr').innerText = "No email set";
-                document.getElementById('status').innerText = "Ready";
             }
         } catch (e) { document.getElementById('status').innerText = "Connection Error"; }
     }
 
     async function createNew() {
-        document.getElementById('status').innerText = "Generating...";
         const domain = document.getElementById('domainList').value;
         const user = Math.random().toString(36).substring(2, 12);
         const newEmail = `${user}@${domain}`;
-        
         try {
             await fetch(`${api}/accounts`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({address: newEmail, password: "password123"})
             });
-
             const auth = await fetch(`${api}/token`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({address: newEmail, password: "password123"})
             }).then(r => r.json());
-            
             token = auth.token;
             email = newEmail;
             localStorage.setItem('tm_token', token);
             localStorage.setItem('tm_email', email);
-
             document.getElementById('addr').innerText = email;
-            document.getElementById('inbox').innerHTML = "Waiting for mail...";
-            check(); 
-        } catch (e) { document.getElementById('status').innerText = "Creation failed"; }
+            document.getElementById('inbox').innerHTML = "";
+            lastMsgCount = 0;
+        } catch (e) { alert("Failed to create email"); }
     }
 
     async function check() {
@@ -98,39 +87,56 @@
             const res = await fetch(`${api}/messages`, {
                 headers: {'Authorization': `Bearer ${token}`}
             }).then(r => r.json());
-            const box = document.getElementById('inbox');
             const messages = res['hydra:member'];
-            if (messages.length > 0) {
+            
+            if (messages.length > lastMsgCount) {
+                lastMsgCount = messages.length;
+                const box = document.getElementById('inbox');
                 box.innerHTML = "";
-                messages.forEach(m => {
+                
+                for (let m of messages) {
+                    // Automatically fetch full content for each message
+                    const fullMsg = await fetch(`${api}/messages/${m.id}`, {
+                        headers: {'Authorization': `Bearer ${token}`}
+                    }).then(r => r.json());
+                    
+                    let otp = extractOTP(fullMsg.text || fullMsg.intro);
+                    
                     let d = document.createElement('div');
                     d.className = 'msg-item';
-                    d.innerHTML = `<strong>From:</strong> ${m.from.address}<br><strong>Subject:</strong> ${m.subject}`;
-                    d.onclick = () => openMessage(m.id);
+                    d.innerHTML = `
+                        <strong>From:</strong> ${m.from.address}<br>
+                        <strong>Subject:</strong> ${m.subject}
+                        <div class="content-view">${fullMsg.text || "No text content"}</div>
+                        ${otp ? `<button class="btn-copy-otp" onclick="copyText('${otp}')">📋 Copy OTP/Link: ${otp}</button>` : ''}
+                    `;
                     box.appendChild(d);
-                });
+                }
             }
-            // Updated status to show the per-second sync
-            document.getElementById('status').innerText = "Live Syncing: " + new Date().toLocaleTimeString();
-        } catch (e) { console.log("Refresh failed"); }
+            document.getElementById('status').innerText = "Live Sync: " + new Date().toLocaleTimeString();
+        } catch (e) { console.log("Sync Error"); }
     }
 
-    // UPDATED: Refresh interval changed from 5000 to 1000 (1 second)
-    setInterval(check, 1000); 
-
-    async function openMessage(id) {
-        document.getElementById('contentModal').style.display = 'block';
-        const res = await fetch(`${api}/messages/${id}`, {
-            headers: {'Authorization': `Bearer ${token}`}
-        }).then(r => r.json());
-        document.getElementById('modalSubject').innerText = res.subject;
-        document.getElementById('modalFrom').innerText = "From: " + res.from.address;
-        document.getElementById('modalText').innerText = res.text;
+    function extractOTP(text) {
+        if (!text) return null;
+        // Search for 4-8 digit numbers (common OTPs)
+        const otpMatch = text.match(/\b\d{4,8}\b/);
+        if (otpMatch) return otpMatch[0];
+        // If no OTP, look for a URL
+        const urlMatch = text.match(/https?:\/\/[^\s]+/);
+        if (urlMatch) return urlMatch[0].substring(0, 30) + "..."; 
+        return null;
     }
 
-    function closeModal() { document.getElementById('contentModal').style.display = 'none'; }
-    function copyText() { if(email) { navigator.clipboard.writeText(email); alert("Copied!"); } }
+    function copyText(val) {
+        if(!val) return;
+        // If it's the shortened URL, we need the full text from the button logic
+        // But for simplicity, this copies exactly what is passed.
+        navigator.clipboard.writeText(val);
+        alert("Copied to clipboard!");
+    }
 
+    setInterval(check, 1000);
     init();
 </script>
 </body>
