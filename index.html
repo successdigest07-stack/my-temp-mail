@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Turbo Burner - Fixed</title>
+    <title>Turbo Burner - 1s Refresh</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; padding: 15px; }
         .card { background: #1a1a1a; padding: 25px; border-radius: 20px; border: 1px solid #333; max-width: 400px; margin: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -51,7 +51,6 @@
                 list.appendChild(o);
             });
 
-            // FIXED: Only auto-generate if there is NOTHING in memory
             if (email && token) {
                 document.getElementById('addr').innerText = email;
                 document.getElementById('status').innerText = "Email Restored";
@@ -111,11 +110,13 @@
                     box.appendChild(d);
                 });
             }
-            document.getElementById('status').innerText = "Turbo Scan: " + new Date().toLocaleTimeString();
+            // Updated status to show the per-second sync
+            document.getElementById('status').innerText = "Live Syncing: " + new Date().toLocaleTimeString();
         } catch (e) { console.log("Refresh failed"); }
     }
 
-    setInterval(check, 5000); // REFRESH EVERY 5 SECONDS
+    // UPDATED: Refresh interval changed from 5000 to 1000 (1 second)
+    setInterval(check, 1000); 
 
     async function openMessage(id) {
         document.getElementById('contentModal').style.display = 'block';
