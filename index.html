@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Turbo Burner - Auto-Extract</title>
+    <title>Turbo Burner - 1s Ultra-Sync</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; padding: 15px; }
         .card { background: #1a1a1a; padding: 25px; border-radius: 20px; border: 1px solid #333; max-width: 400px; margin: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -11,13 +11,22 @@
         select { background: #2d2d2d; color: white; border: 1px solid #444; }
         .btn-main { background: #00d1b2; color: black; }
         .btn-gen { background: #ffdd57; color: black; }
-        .btn-copy-otp { background: #ff3860; color: white; margin-top: 5px; font-size: 0.8rem; padding: 8px; }
+        .btn-copy-otp { background: #ff3860; color: white; margin-top: 10px; font-size: 0.8rem; padding: 8px; width: auto; display: inline-block; }
+        .btn-del { background: transparent; color: #666; font-size: 0.7rem; border: 1px solid #444; padding: 4px 8px; width: auto; float: right; }
         .status-bar { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.7rem; color: #666; margin-top: 10px; }
         .pulse { width: 8px; height: 8px; background: #00d1b2; border-radius: 50%; display: inline-block; animation: blink 1s infinite; }
         @keyframes blink { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+        
         .msg-list { text-align: left; margin-top: 20px; }
-        .msg-item { background: #252525; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #00d1b2; font-size: 0.9rem; }
-        .content-view { background: #111; padding: 10px; border-radius: 5px; margin-top: 10px; color: #bbb; font-size: 0.85rem; white-space: pre-wrap; border: 1px dashed #444; }
+        .msg-item { background: #252525; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #00d1b2; overflow: hidden; }
+        .msg-header { padding: 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .msg-header:hover { background: #2d2d2d; }
+        .msg-subject { font-size: 0.9rem; font-weight: bold; display: block; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .msg-from { font-size: 0.7rem; color: #888; }
+        .content-view { display: none; background: #111; padding: 15px; color: #bbb; font-size: 0.85rem; white-space: pre-wrap; border-top: 1px solid #333; }
+        .content-view.open { display: block; }
+        .arrow { font-size: 0.6rem; color: #666; transition: 0.3s; }
+        .arrow.rotate { transform: rotate(180deg); }
     </style>
 </head>
 <body>
@@ -38,6 +47,7 @@
     let email = localStorage.getItem('tm_email') || "";
     const api = "https://api.mail.tm";
     let lastMsgCount = 0;
+    let isChecking = false; // Prevent overlapping requests
 
     async function init() {
         try {
@@ -48,12 +58,11 @@
                 o.value = d.domain; o.innerText = "@" + d.domain;
                 list.appendChild(o);
             });
-
             if (email && token) {
                 document.getElementById('addr').innerText = email;
                 check();
             }
-        } catch (e) { document.getElementById('status').innerText = "Connection Error"; }
+        } catch (e) { document.getElementById('status').innerText = "Offline"; }
     }
 
     async function createNew() {
@@ -71,72 +80,100 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({address: newEmail, password: "password123"})
             }).then(r => r.json());
-            token = auth.token;
-            email = newEmail;
+            token = auth.token; email = newEmail;
             localStorage.setItem('tm_token', token);
             localStorage.setItem('tm_email', email);
             document.getElementById('addr').innerText = email;
             document.getElementById('inbox').innerHTML = "";
             lastMsgCount = 0;
-        } catch (e) { alert("Failed to create email"); }
+        } catch (e) { alert("Rate limit or Error. Try again in a moment."); }
     }
 
     async function check() {
-        if (!token) return;
+        if (!token || isChecking) return;
+        isChecking = true;
         try {
             const res = await fetch(`${api}/messages`, {
                 headers: {'Authorization': `Bearer ${token}`}
             }).then(r => r.json());
             const messages = res['hydra:member'];
             
-            if (messages.length > lastMsgCount) {
+            if (messages.length !== lastMsgCount) {
                 lastMsgCount = messages.length;
                 const box = document.getElementById('inbox');
                 box.innerHTML = "";
                 
                 for (let m of messages) {
-                    // Automatically fetch full content for each message
-                    const fullMsg = await fetch(`${api}/messages/${m.id}`, {
-                        headers: {'Authorization': `Bearer ${token}`}
-                    }).then(r => r.json());
-                    
-                    let otp = extractOTP(fullMsg.text || fullMsg.intro);
-                    
                     let d = document.createElement('div');
                     d.className = 'msg-item';
                     d.innerHTML = `
-                        <strong>From:</strong> ${m.from.address}<br>
-                        <strong>Subject:</strong> ${m.subject}
-                        <div class="content-view">${fullMsg.text || "No text content"}</div>
-                        ${otp ? `<button class="btn-copy-otp" onclick="copyText('${otp}')">📋 Copy OTP/Link: ${otp}</button>` : ''}
+                        <div class="msg-header" onclick="toggleMsg(this)">
+                            <div>
+                                <span class="msg-from">${m.from.address}</span><br>
+                                <span class="msg-subject">${m.subject}</span>
+                            </div>
+                            <span class="arrow">▼</span>
+                        </div>
+                        <div class="content-view" id="content-${m.id}">Loading content...</div>
                     `;
                     box.appendChild(d);
                 }
             }
-            document.getElementById('status').innerText = "Live Sync: " + new Date().toLocaleTimeString();
-        } catch (e) { console.log("Sync Error"); }
+            document.getElementById('status').innerText = "Live: " + new Date().toLocaleTimeString();
+        } catch (e) { 
+            document.getElementById('status').innerText = "API Busy..."; 
+        } finally {
+            isChecking = false;
+        }
+    }
+
+    async function toggleMsg(header) {
+        const contentView = header.nextElementSibling;
+        const arrow = header.querySelector('.arrow');
+        const msgId = contentView.id.replace('content-', '');
+
+        const isOpen = contentView.classList.toggle('open');
+        arrow.classList.toggle('rotate');
+
+        if (isOpen && contentView.innerText === "Loading content...") {
+            try {
+                const fullMsg = await fetch(`${api}/messages/${msgId}`, {
+                    headers: {'Authorization': `Bearer ${token}`}
+                }).then(r => r.json());
+                
+                let otp = extractOTP(fullMsg.text || fullMsg.intro);
+                contentView.innerHTML = `
+                    <button class="btn-del" onclick="deleteMsg('${msgId}')">Delete</button>
+                    <div>${fullMsg.text || "No text content"}</div>
+                    ${otp ? `<button class="btn-copy-otp" onclick="copyText('${otp}')">📋 Copy OTP: ${otp}</button>` : ''}
+                `;
+            } catch (e) { contentView.innerText = "Error loading."; }
+        }
+    }
+
+    async function deleteMsg(id) {
+        try {
+            await fetch(`${api}/messages/${id}`, {
+                method: 'DELETE',
+                headers: {'Authorization': `Bearer ${token}`}
+            });
+            check();
+        } catch (e) { console.log("Del error"); }
     }
 
     function extractOTP(text) {
         if (!text) return null;
-        // Search for 4-8 digit numbers (common OTPs)
         const otpMatch = text.match(/\b\d{4,8}\b/);
-        if (otpMatch) return otpMatch[0];
-        // If no OTP, look for a URL
-        const urlMatch = text.match(/https?:\/\/[^\s]+/);
-        if (urlMatch) return urlMatch[0].substring(0, 30) + "..."; 
-        return null;
+        return otpMatch ? otpMatch[0] : null;
     }
 
     function copyText(val) {
         if(!val) return;
-        // If it's the shortened URL, we need the full text from the button logic
-        // But for simplicity, this copies exactly what is passed.
         navigator.clipboard.writeText(val);
-        alert("Copied to clipboard!");
+        alert("Copied!");
     }
 
-    setInterval(check, 1000);
+    setInterval(check, 1000); // 1-second sync interval
     init();
 </script>
 </body>
