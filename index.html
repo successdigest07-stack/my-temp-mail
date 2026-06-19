@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Turbo Burner - 1s Ultra-Sync</title>
+    <title>Turbo Burner - Ultra-Sync</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; text-align: center; padding: 15px; }
         .card { background: #1a1a1a; padding: 25px; border-radius: 20px; border: 1px solid #333; max-width: 400px; margin: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -46,8 +46,8 @@
     let token = localStorage.getItem('tm_token') || ""; 
     let email = localStorage.getItem('tm_email') || "";
     const api = "https://api.mail.tm";
-    let lastMsgCount = 0;
-    let isChecking = false; // Prevent overlapping requests
+    let lastMsgCount = -1; // Reset to -1 to force load on initial initialization
+    let isChecking = false;
 
     async function init() {
         try {
@@ -61,6 +61,9 @@
             if (email && token) {
                 document.getElementById('addr').innerText = email;
                 check();
+            } else {
+                document.getElementById('addr').innerText = "Create an email to start";
+                document.getElementById('status').innerText = "Ready";
             }
         } catch (e) { document.getElementById('status').innerText = "Offline"; }
     }
@@ -69,6 +72,7 @@
         const domain = document.getElementById('domainList').value;
         const user = Math.random().toString(36).substring(2, 12);
         const newEmail = `${user}@${domain}`;
+        document.getElementById('status').innerText = "Creating account...";
         try {
             await fetch(`${api}/accounts`, {
                 method: 'POST',
@@ -80,13 +84,20 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({address: newEmail, password: "password123"})
             }).then(r => r.json());
+            
             token = auth.token; email = newEmail;
             localStorage.setItem('tm_token', token);
             localStorage.setItem('tm_email', email);
             document.getElementById('addr').innerText = email;
             document.getElementById('inbox').innerHTML = "";
             lastMsgCount = 0;
-        } catch (e) { alert("Rate limit or Error. Try again in a moment."); }
+            
+            // Instantly check inbox for the brand new address
+            check();
+        } catch (e) { 
+            alert("Rate limit encountered. Please try again in a moment."); 
+            document.getElementById('status').innerText = "Rate limited";
+        }
     }
 
     async function check() {
@@ -103,23 +114,27 @@
                 const box = document.getElementById('inbox');
                 box.innerHTML = "";
                 
-                for (let m of messages) {
-                    let d = document.createElement('div');
-                    d.className = 'msg-item';
-                    d.innerHTML = `
-                        <div class="msg-header" onclick="toggleMsg(this)">
-                            <div>
-                                <span class="msg-from">${m.from.address}</span><br>
-                                <span class="msg-subject">${m.subject}</span>
+                if (messages.length === 0) {
+                    box.innerHTML = `<div style="text-align:center; color:#666; font-size:0.85rem; margin-top:20px;">Waiting for incoming messages...</div>`;
+                } else {
+                    for (let m of messages) {
+                        let d = document.createElement('div');
+                        d.className = 'msg-item';
+                        d.innerHTML = `
+                            <div class="msg-header" onclick="toggleMsg(this)">
+                                <div>
+                                    <span class="msg-from">${m.from.address}</span><br>
+                                    <span class="msg-subject">${m.subject || '(No Subject)'}</span>
+                                </div>
+                                <span class="arrow">▼</span>
                             </div>
-                            <span class="arrow">▼</span>
-                        </div>
-                        <div class="content-view" id="content-${m.id}">Loading content...</div>
-                    `;
-                    box.appendChild(d);
+                            <div class="content-view" id="content-${m.id}">Loading content...</div>
+                        `;
+                        box.appendChild(d);
+                    }
                 }
             }
-            document.getElementById('status').innerText = "Live: " + new Date().toLocaleTimeString();
+            document.getElementById('status').innerText = "Live: " + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
         } catch (e) { 
             document.getElementById('status').innerText = "API Busy..."; 
         } finally {
@@ -143,20 +158,24 @@
                 
                 let otp = extractOTP(fullMsg.text || fullMsg.intro);
                 contentView.innerHTML = `
-                    <button class="btn-del" onclick="deleteMsg('${msgId}')">Delete</button>
-                    <div>${fullMsg.text || "No text content"}</div>
+                    <button class="btn-del" onclick="deleteMsg(event, '${msgId}')">Delete</button>
+                    <div style="margin-top:10px;">${fullMsg.text || "No text content"}</div>
                     ${otp ? `<button class="btn-copy-otp" onclick="copyText('${otp}')">📋 Copy OTP: ${otp}</button>` : ''}
                 `;
-            } catch (e) { contentView.innerText = "Error loading."; }
+            } catch (e) { contentView.innerText = "Error loading content."; }
         }
     }
 
-    async function deleteMsg(id) {
+    async function deleteMsg(event, id) {
+        event.stopPropagation(); // Stops parent container from toggling closed mid-deletion
+        if(!confirm("Delete this message?")) return;
         try {
+            document.getElementById(`content-${id}`).innerText = "Deleting...";
             await fetch(`${api}/messages/${id}`, {
                 method: 'DELETE',
                 headers: {'Authorization': `Bearer ${token}`}
             });
+            lastMsgCount = -1; // Reset sync count force layout redraw
             check();
         } catch (e) { console.log("Del error"); }
     }
@@ -169,11 +188,15 @@
 
     function copyText(val) {
         if(!val) return;
-        navigator.clipboard.writeText(val);
-        alert("Copied!");
+        navigator.clipboard.writeText(val).then(() => {
+            alert("Copied directly to clipboard!");
+        }).catch(err => {
+            alert("Failed to copy automatically.");
+        });
     }
 
-    setInterval(check, 1000); // 1-second sync interval
+    // Set checking interval to 10 seconds to keep your script below the rate limit ceiling
+    setInterval(check, 10000);
     init();
 </script>
 </body>
