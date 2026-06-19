@@ -46,7 +46,7 @@
     let token = localStorage.getItem('tm_token') || ""; 
     let email = localStorage.getItem('tm_email') || "";
     const api = "https://api.mail.tm";
-    let lastMsgCount = -1; // Reset to -1 to force load on initial initialization
+    let lastMsgCount = -1; 
     let isChecking = false;
 
     async function init() {
@@ -92,7 +92,6 @@
             document.getElementById('inbox').innerHTML = "";
             lastMsgCount = 0;
             
-            // Instantly check inbox for the brand new address
             check();
         } catch (e) { 
             alert("Rate limit encountered. Please try again in a moment."); 
@@ -156,10 +155,24 @@
                     headers: {'Authorization': `Bearer ${token}`}
                 }).then(r => r.json());
                 
-                let otp = extractOTP(fullMsg.text || fullMsg.intro);
+                // Read text, introduction snippet, or array properties for target matching
+                let searchPool = `${fullMsg.text || ''} ${fullMsg.intro || ''} ${Array.isArray(fullMsg.html) ? fullMsg.html.join(' ') : (fullMsg.html || '')}`;
+                let otp = extractOTP(searchPool);
+
+                let displayBody = "";
+                if (fullMsg.text) {
+                    displayBody = `<div style="padding: 5px; color: #bbb;">${fullMsg.text}</div>`;
+                } else if (fullMsg.html) {
+                    let htmlContent = Array.isArray(fullMsg.html) ? fullMsg.html.join('') : fullMsg.html;
+                    // Render rich elements securely without bleeding custom email styles into our dashboard layout
+                    displayBody = `<iframe srcdoc="${htmlContent.replace(/"/g, '&quot;')}" style="width:100%; border:none; height:300px; background:white; border-radius:6px; margin-top:10px;"></iframe>`;
+                } else {
+                    displayBody = `<div style="padding: 5px; color: #bbb;">${fullMsg.intro || "No content available."}</div>`;
+                }
+                
                 contentView.innerHTML = `
                     <button class="btn-del" onclick="deleteMsg(event, '${msgId}')">Delete</button>
-                    <div style="margin-top:10px;">${fullMsg.text || "No text content"}</div>
+                    <div style="margin-top:10px;">${displayBody}</div>
                     ${otp ? `<button class="btn-copy-otp" onclick="copyText('${otp}')">📋 Copy OTP: ${otp}</button>` : ''}
                 `;
             } catch (e) { contentView.innerText = "Error loading content."; }
@@ -167,7 +180,7 @@
     }
 
     async function deleteMsg(event, id) {
-        event.stopPropagation(); // Stops parent container from toggling closed mid-deletion
+        event.stopPropagation(); 
         if(!confirm("Delete this message?")) return;
         try {
             document.getElementById(`content-${id}`).innerText = "Deleting...";
@@ -175,7 +188,7 @@
                 method: 'DELETE',
                 headers: {'Authorization': `Bearer ${token}`}
             });
-            lastMsgCount = -1; // Reset sync count force layout redraw
+            lastMsgCount = -1; 
             check();
         } catch (e) { console.log("Del error"); }
     }
@@ -195,7 +208,7 @@
         });
     }
 
-    // Set checking interval to 10 seconds to keep your script below the rate limit ceiling
+    // Set stable background checking interval to 10 seconds
     setInterval(check, 10000);
     init();
 </script>
