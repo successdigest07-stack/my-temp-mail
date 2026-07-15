@@ -48,6 +48,13 @@
     const api = "https://api.mail.tm";
     let lastMsgCount = -1; 
     let isChecking = false;
+    let checkInterval = null; // Track interval state to avoid overlapping loops
+
+    function startSyncTimer() {
+        // Clear any previous running interval to avoid stacking overlapping sync cycles
+        if (checkInterval) clearInterval(checkInterval);
+        checkInterval = setInterval(check, 10000);
+    }
 
     async function init() {
         try {
@@ -60,19 +67,28 @@
             });
             if (email && token) {
                 document.getElementById('addr').innerText = email;
-                check();
+                await check();
+                startSyncTimer();
             } else {
                 document.getElementById('addr').innerText = "Create an email to start";
                 document.getElementById('status').innerText = "Ready";
             }
-        } catch (e) { document.getElementById('status').innerText = "Offline"; }
+        } catch (e) { 
+            document.getElementById('status').innerText = "Offline"; 
+        }
     }
 
     async function createNew() {
+        if (isChecking) return; // Wait if sync is actively executing
         const domain = document.getElementById('domainList').value;
+        if (!domain) {
+            alert("Domains are still loading. Please try again.");
+            return;
+        }
         const user = Math.random().toString(36).substring(2, 12);
         const newEmail = `${user}@${domain}`;
         document.getElementById('status').innerText = "Creating account...";
+        
         try {
             await fetch(`${api}/accounts`, {
                 method: 'POST',
@@ -92,7 +108,8 @@
             document.getElementById('inbox').innerHTML = "";
             lastMsgCount = 0;
             
-            check();
+            await check();
+            startSyncTimer(); // Re-establish synchronized interval loop
         } catch (e) { 
             alert("Rate limit encountered. Please try again in a moment."); 
             document.getElementById('status').innerText = "Rate limited";
@@ -105,8 +122,16 @@
         try {
             const res = await fetch(`${api}/messages`, {
                 headers: {'Authorization': `Bearer ${token}`}
-            }).then(r => r.json());
-            const messages = res['hydra:member'];
+            });
+            
+            if (res.status === 429 || res.status === 503) {
+                document.getElementById('status').innerText = "API Busy... Backing off";
+                isChecking = false;
+                return;
+            }
+
+            const data = await res.json();
+            const messages = data['hydra:member'];
             
             if (messages.length !== lastMsgCount) {
                 lastMsgCount = messages.length;
@@ -135,7 +160,7 @@
             }
             document.getElementById('status').innerText = "Live: " + new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
         } catch (e) { 
-            document.getElementById('status').innerText = "API Busy..."; 
+            document.getElementById('status').innerText = "Connection Error"; 
         } finally {
             isChecking = false;
         }
@@ -155,7 +180,6 @@
                     headers: {'Authorization': `Bearer ${token}`}
                 }).then(r => r.json());
                 
-                // Read text, introduction snippet, or array properties for target matching
                 let searchPool = `${fullMsg.text || ''} ${fullMsg.intro || ''} ${Array.isArray(fullMsg.html) ? fullMsg.html.join(' ') : (fullMsg.html || '')}`;
                 let otp = extractOTP(searchPool);
 
@@ -164,7 +188,6 @@
                     displayBody = `<div style="padding: 5px; color: #bbb;">${fullMsg.text}</div>`;
                 } else if (fullMsg.html) {
                     let htmlContent = Array.isArray(fullMsg.html) ? fullMsg.html.join('') : fullMsg.html;
-                    // Render rich elements securely without bleeding custom email styles into our dashboard layout
                     displayBody = `<iframe srcdoc="${htmlContent.replace(/"/g, '&quot;')}" style="width:100%; border:none; height:300px; background:white; border-radius:6px; margin-top:10px;"></iframe>`;
                 } else {
                     displayBody = `<div style="padding: 5px; color: #bbb;">${fullMsg.intro || "No content available."}</div>`;
@@ -189,8 +212,10 @@
                 headers: {'Authorization': `Bearer ${token}`}
             });
             lastMsgCount = -1; 
-            check();
-        } catch (e) { console.log("Del error"); }
+            await check();
+        } catch (e) { 
+            console.error("Delete error:", e); 
+        }
     }
 
     function extractOTP(text) {
@@ -208,8 +233,7 @@
         });
     }
 
-    // Set stable background checking interval to 10 seconds
-    setInterval(check, 10000);
+    // Initialize layout cleanly
     init();
 </script>
 </body>
