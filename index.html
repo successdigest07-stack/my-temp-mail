@@ -35,18 +35,18 @@
 <div class="card">
     <h2 style="margin-top:0;">🛡️ Turbo Burner</h2>
     <label style="font-size: 0.8rem; color: #888;">Select Domain</label>
-    <select id="domainList"><option value="">Loading domains...</option></select>
+    <select id="domainList"></select>
     <button class="btn-gen" onclick="createNew()">✨ Create New Email</button>
-    <div id="addr" class="email-box">Checking memory...</div>
+    <div id="addr" class="email-box">Ready</div>
     <button class="btn-main" onclick="copyText(email)">📋 Copy Email</button>
     <div class="status-bar"><span class="pulse"></span><span id="status">Syncing...</span></div>
     <div id="inbox" class="msg-list"></div>
 </div>
 
 <script>
-    let token = localStorage.getItem('tm_token') || ""; 
-    let email = localStorage.getItem('tm_email') || "";
-    const api = "https://api.mail.tm";
+    let sessionToken = localStorage.getItem('gm_sid') || ""; 
+    let email = localStorage.getItem('gm_email') || "";
+    const api = "https://api.guerrillamail.com/ajax.php";
     let lastMsgCount = -1; 
     let isChecking = false;
     let checkInterval = null;
@@ -56,97 +56,33 @@
         checkInterval = setInterval(check, 10000);
     }
 
-    async function fetchDomains() {
-        const list = document.getElementById('domainList');
-        try {
-            const res = await fetch(`${api}/domains`);
-            if (!res.ok) throw new Error("HTTP Error " + res.status);
-            const doms = await res.json();
-            const members = doms['hydra:member'] || [];
-            
-            list.innerHTML = "";
-            let addedCount = 0;
-
-            members.forEach(d => {
-                if (d.domain && d.isIsActive !== false) {
-                    let o = document.createElement('option');
-                    o.value = d.domain; 
-                    o.innerText = "@" + d.domain;
-                    list.appendChild(o);
-                    addedCount++;
-                }
-            });
-
-            if (addedCount === 0) {
-                list.innerHTML = '<option value="">No domains available</option>';
-                return false;
-            }
-            return true;
-        } catch (e) {
-            console.error("Domain Fetch Error:", e);
-            list.innerHTML = '<option value="">Failed to load domains (Retry)</option>';
-            return false;
-        }
-    }
-
     async function init() {
-        const domainsLoaded = await fetchDomains();
+        const list = document.getElementById('domainList');
+        list.innerHTML = '<option value="guerrillamail.com">@guerrillamail.com</option><option value="sharklasers.com">@sharklasers.com</option><option value="poke-mail.com">@poke-mail.com</option>';
         
-        if (email && token) {
+        if (email && sessionToken) {
             document.getElementById('addr').innerText = email;
             await check();
             startSyncTimer();
         } else {
-            document.getElementById('addr').innerText = domainsLoaded ? "Create an email to start" : "Domain Error - Refresh";
-            document.getElementById('status').innerText = domainsLoaded ? "Ready" : "API Offline";
+            document.getElementById('addr').innerText = "Create an email to start";
+            document.getElementById('status').innerText = "Ready";
         }
     }
 
     async function createNew() {
         if (isChecking) return;
-        const domainList = document.getElementById('domainList');
-        
-        if (!domainList.value) {
-            document.getElementById('status').innerText = "Retrying domain fetch...";
-            const retryOk = await fetchDomains();
-            if (!retryOk || !domainList.value) {
-                alert("Could not reach Mail.tm API domains. Please check your internet connection or ad blockers.");
-                return;
-            }
-        }
-
-        const domain = domainList.value;
-        const user = Math.random().toString(36).substring(2, 12);
-        const newEmail = `${user}@${domain}`;
-        const pass = "Password123!";
-        
-        document.getElementById('status').innerText = "Creating account...";
+        document.getElementById('status').innerText = "Generating email...";
         
         try {
-            const accRes = await fetch(`${api}/accounts`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({address: newEmail, password: pass})
-            });
-
-            if (!accRes.ok && accRes.status !== 422) {
-                throw new Error("Account creation failed");
-            }
-
-            const authRes = await fetch(`${api}/token`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({address: newEmail, password: pass})
-            });
-
-            if (!authRes.ok) throw new Error("Auth token failed");
+            const res = await fetch(`${api}?f=get_email_address`);
+            const data = await res.json();
             
-            const auth = await authRes.json();
+            sessionToken = data.sid_token;
+            email = data.email_addr;
             
-            token = auth.token; 
-            email = newEmail;
-            localStorage.setItem('tm_token', token);
-            localStorage.setItem('tm_email', email);
+            localStorage.setItem('gm_sid', sessionToken);
+            localStorage.setItem('gm_email', email);
             
             document.getElementById('addr').innerText = email;
             document.getElementById('inbox').innerHTML = "";
@@ -156,38 +92,18 @@
             startSyncTimer();
         } catch (e) { 
             console.error(e);
-            alert("Rate limit or API issue encountered. Please wait a moment and try again."); 
-            document.getElementById('status').innerText = "Rate limited";
+            document.getElementById('status').innerText = "API Blocked / Offline";
+            alert("Unable to reach the email server. Please try switching network connections.");
         }
     }
 
     async function check() {
-        if (!token || isChecking) return;
+        if (!sessionToken || isChecking) return;
         isChecking = true;
         try {
-            const res = await fetch(`${api}/messages`, {
-                headers: {'Authorization': `Bearer ${token}`}
-            });
-            
-            if (res.status === 401) {
-                // Token expired/invalidated, clear session
-                localStorage.removeItem('tm_token');
-                localStorage.removeItem('tm_email');
-                token = ""; email = "";
-                document.getElementById('addr').innerText = "Session expired. Create a new email.";
-                document.getElementById('status').innerText = "Expired";
-                isChecking = false;
-                return;
-            }
-
-            if (res.status === 429 || res.status === 503) {
-                document.getElementById('status').innerText = "API Busy... Backing off";
-                isChecking = false;
-                return;
-            }
-
+            const res = await fetch(`${api}?f=check_email&sid_token=${sessionToken}&seq=0`);
             const data = await res.json();
-            const messages = data['hydra:member'] || [];
+            const messages = data.list || [];
             
             if (messages.length !== lastMsgCount) {
                 lastMsgCount = messages.length;
@@ -201,14 +117,14 @@
                         let d = document.createElement('div');
                         d.className = 'msg-item';
                         d.innerHTML = `
-                            <div class="msg-header" onclick="toggleMsg(this)">
+                            <div class="msg-header" onclick="toggleMsg(this, '${m.mail_id}')">
                                 <div>
-                                    <span class="msg-from">${m.from ? m.from.address : 'Unknown'}</span><br>
-                                    <span class="msg-subject">${m.subject || '(No Subject)'}</span>
+                                    <span class="msg-from">${m.mail_from}</span><br>
+                                    <span class="msg-subject">${m.mail_subject || '(No Subject)'}</span>
                                 </div>
                                 <span class="arrow">▼</span>
                             </div>
-                            <div class="content-view" id="content-${m.id}">Loading content...</div>
+                            <div class="content-view" id="content-${m.mail_id}">Loading content...</div>
                         `;
                         box.appendChild(d);
                     }
@@ -222,39 +138,29 @@
         }
     }
 
-    async function toggleMsg(header) {
+    async function toggleMsg(header, msgId) {
         const contentView = header.nextElementSibling;
         const arrow = header.querySelector('.arrow');
-        const msgId = contentView.id.replace('content-', '');
 
         const isOpen = contentView.classList.toggle('open');
         arrow.classList.toggle('rotate');
 
         if (isOpen && contentView.innerText === "Loading content...") {
             try {
-                const fullMsg = await fetch(`${api}/messages/${msgId}`, {
-                    headers: {'Authorization': `Bearer ${token}`}
-                }).then(r => r.json());
+                const res = await fetch(`${api}?f=fetch_email&email_id=${msgId}&sid_token=${sessionToken}`);
+                const fullMsg = await res.json();
                 
-                let searchPool = `${fullMsg.text || ''} ${fullMsg.intro || ''} ${Array.isArray(fullMsg.html) ? fullMsg.html.join(' ') : (fullMsg.html || '')}`;
-                let otp = extractOTP(searchPool);
+                let body = fullMsg.mail_body || fullMsg.mail_excerpt || "";
+                let otp = extractOTP(body);
 
-                let displayBody = "";
-                if (fullMsg.text) {
-                    displayBody = `<div style="padding: 5px; color: #bbb;">${fullMsg.text}</div>`;
-                } else if (fullMsg.html) {
-                    let htmlContent = Array.isArray(fullMsg.html) ? fullMsg.html.join('') : fullMsg.html;
-                    displayBody = `<iframe srcdoc="${htmlContent.replace(/"/g, '&quot;')}" style="width:100%; border:none; height:300px; background:white; border-radius:6px; margin-top:10px;"></iframe>`;
-                } else {
-                    displayBody = `<div style="padding: 5px; color: #bbb;">${fullMsg.intro || "No content available."}</div>`;
-                }
-                
                 contentView.innerHTML = `
                     <button class="btn-del" onclick="deleteMsg(event, '${msgId}')">Delete</button>
-                    <div style="margin-top:10px;">${displayBody}</div>
+                    <div style="margin-top:10px; color:#bbb;">${body}</div>
                     ${otp ? `<button class="btn-copy-otp" onclick="copyText('${otp}')">📋 Copy OTP: ${otp}</button>` : ''}
                 `;
-            } catch (e) { contentView.innerText = "Error loading content."; }
+            } catch (e) { 
+                contentView.innerText = "Error loading message content."; 
+            }
         }
     }
 
@@ -262,11 +168,7 @@
         event.stopPropagation(); 
         if(!confirm("Delete this message?")) return;
         try {
-            document.getElementById(`content-${id}`).innerText = "Deleting...";
-            await fetch(`${api}/messages/${id}`, {
-                method: 'DELETE',
-                headers: {'Authorization': `Bearer ${token}`}
-            });
+            await fetch(`${api}?f=forget_me&email_ids[]=${id}&sid_token=${sessionToken}`);
             lastMsgCount = -1; 
             await check();
         } catch (e) { 
@@ -283,9 +185,9 @@
     function copyText(val) {
         if(!val) return;
         navigator.clipboard.writeText(val).then(() => {
-            alert("Copied directly to clipboard!");
+            alert("Copied to clipboard!");
         }).catch(err => {
-            alert("Failed to copy automatically.");
+            alert("Failed to copy.");
         });
     }
 
