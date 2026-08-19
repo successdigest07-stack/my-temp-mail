@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Turbo Burner - Ultra-Sync</title>
     <style>
@@ -34,7 +35,7 @@
 <div class="card">
     <h2 style="margin-top:0;">🛡️ Turbo Burner</h2>
     <label style="font-size: 0.8rem; color: #888;">Select Domain</label>
-    <select id="domainList"></select>
+    <select id="domainList"><option value="">Loading domains...</option></select>
     <button class="btn-gen" onclick="createNew()">✨ Create New Email</button>
     <div id="addr" class="email-box">Checking memory...</div>
     <button class="btn-main" onclick="copyText(email)">📋 Copy Email</button>
@@ -48,70 +49,114 @@
     const api = "https://api.mail.tm";
     let lastMsgCount = -1; 
     let isChecking = false;
-    let checkInterval = null; // Track interval state to avoid overlapping loops
+    let checkInterval = null;
 
     function startSyncTimer() {
-        // Clear any previous running interval to avoid stacking overlapping sync cycles
         if (checkInterval) clearInterval(checkInterval);
         checkInterval = setInterval(check, 10000);
     }
 
-    async function init() {
+    async function fetchDomains() {
+        const list = document.getElementById('domainList');
         try {
-            const doms = await fetch(`${api}/domains`).then(r => r.json());
-            const list = document.getElementById('domainList');
-            doms['hydra:member'].forEach(d => {
-                let o = document.createElement('option');
-                o.value = d.domain; o.innerText = "@" + d.domain;
-                list.appendChild(o);
+            const res = await fetch(`${api}/domains`);
+            if (!res.ok) throw new Error("HTTP Error " + res.status);
+            const doms = await res.json();
+            const members = doms['hydra:member'] || [];
+            
+            list.innerHTML = "";
+            let addedCount = 0;
+
+            members.forEach(d => {
+                if (d.domain && d.isIsActive !== false) {
+                    let o = document.createElement('option');
+                    o.value = d.domain; 
+                    o.innerText = "@" + d.domain;
+                    list.appendChild(o);
+                    addedCount++;
+                }
             });
-            if (email && token) {
-                document.getElementById('addr').innerText = email;
-                await check();
-                startSyncTimer();
-            } else {
-                document.getElementById('addr').innerText = "Create an email to start";
-                document.getElementById('status').innerText = "Ready";
+
+            if (addedCount === 0) {
+                list.innerHTML = '<option value="">No domains available</option>';
+                return false;
             }
-        } catch (e) { 
-            document.getElementById('status').innerText = "Offline"; 
+            return true;
+        } catch (e) {
+            console.error("Domain Fetch Error:", e);
+            list.innerHTML = '<option value="">Failed to load domains (Retry)</option>';
+            return false;
+        }
+    }
+
+    async function init() {
+        const domainsLoaded = await fetchDomains();
+        
+        if (email && token) {
+            document.getElementById('addr').innerText = email;
+            await check();
+            startSyncTimer();
+        } else {
+            document.getElementById('addr').innerText = domainsLoaded ? "Create an email to start" : "Domain Error - Refresh";
+            document.getElementById('status').innerText = domainsLoaded ? "Ready" : "API Offline";
         }
     }
 
     async function createNew() {
-        if (isChecking) return; // Wait if sync is actively executing
-        const domain = document.getElementById('domainList').value;
-        if (!domain) {
-            alert("Domains are still loading. Please try again.");
-            return;
+        if (isChecking) return;
+        const domainList = document.getElementById('domainList');
+        
+        if (!domainList.value) {
+            document.getElementById('status').innerText = "Retrying domain fetch...";
+            const retryOk = await fetchDomains();
+            if (!retryOk || !domainList.value) {
+                alert("Could not reach Mail.tm API domains. Please check your internet connection or ad blockers.");
+                return;
+            }
         }
+
+        const domain = domainList.value;
         const user = Math.random().toString(36).substring(2, 12);
         const newEmail = `${user}@${domain}`;
+        const pass = "Password123!";
+        
         document.getElementById('status').innerText = "Creating account...";
         
         try {
-            await fetch(`${api}/accounts`, {
+            const accRes = await fetch(`${api}/accounts`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({address: newEmail, password: "password123"})
+                body: JSON.stringify({address: newEmail, password: pass})
             });
-            const auth = await fetch(`${api}/token`, {
+
+            if (!accRes.ok && accRes.status !== 422) {
+                throw new Error("Account creation failed");
+            }
+
+            const authRes = await fetch(`${api}/token`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({address: newEmail, password: "password123"})
-            }).then(r => r.json());
+                body: JSON.stringify({address: newEmail, password: pass})
+            });
+
+            if (!authRes.ok) throw new Error("Auth token failed");
             
-            token = auth.token; email = newEmail;
+            const auth = await authRes.json();
+            
+            token = auth.token; 
+            email = newEmail;
             localStorage.setItem('tm_token', token);
             localStorage.setItem('tm_email', email);
+            
             document.getElementById('addr').innerText = email;
             document.getElementById('inbox').innerHTML = "";
-            lastMsgCount = 0;
+            lastMsgCount = -1;
             
             await check();
-            startSyncTimer(); // Re-establish synchronized interval loop
+            startSyncTimer();
         } catch (e) { 
-            alert("Rate limit encountered. Please try again in a moment."); 
+            console.error(e);
+            alert("Rate limit or API issue encountered. Please wait a moment and try again."); 
             document.getElementById('status').innerText = "Rate limited";
         }
     }
@@ -124,6 +169,17 @@
                 headers: {'Authorization': `Bearer ${token}`}
             });
             
+            if (res.status === 401) {
+                // Token expired/invalidated, clear session
+                localStorage.removeItem('tm_token');
+                localStorage.removeItem('tm_email');
+                token = ""; email = "";
+                document.getElementById('addr').innerText = "Session expired. Create a new email.";
+                document.getElementById('status').innerText = "Expired";
+                isChecking = false;
+                return;
+            }
+
             if (res.status === 429 || res.status === 503) {
                 document.getElementById('status').innerText = "API Busy... Backing off";
                 isChecking = false;
@@ -131,7 +187,7 @@
             }
 
             const data = await res.json();
-            const messages = data['hydra:member'];
+            const messages = data['hydra:member'] || [];
             
             if (messages.length !== lastMsgCount) {
                 lastMsgCount = messages.length;
@@ -147,7 +203,7 @@
                         d.innerHTML = `
                             <div class="msg-header" onclick="toggleMsg(this)">
                                 <div>
-                                    <span class="msg-from">${m.from.address}</span><br>
+                                    <span class="msg-from">${m.from ? m.from.address : 'Unknown'}</span><br>
                                     <span class="msg-subject">${m.subject || '(No Subject)'}</span>
                                 </div>
                                 <span class="arrow">▼</span>
@@ -233,7 +289,6 @@
         });
     }
 
-    // Initialize layout cleanly
     init();
 </script>
 </body>
